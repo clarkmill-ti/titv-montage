@@ -1,63 +1,61 @@
 name: TITV Montage
-
 # Two ways to run:
-#  1. Manual — click "Run workflow", paste a direct video URL (works today
-#     while episodes are uploaded by hand).
-#  2. Scheduled — the cron block below runs every weekday morning. It's
-#     commented out until Frame.io API access is sorted with Jake. When
-#     ready, uncomment it and fill in the fetch step.
-
+#  1. Manual — click "Run workflow", pick a date folder from Drive Records.
+#  2. Scheduled — cron block below runs every weekday morning, pulling
+#     today's date automatically. Uncomment when ready to go fully hands-off.
 on:
   workflow_dispatch:
     inputs:
-      video_url:
-        description: "Direct download URL for the episode video"
-        required: true
-        type: string
-      config:
-        description: "Which clip config to use"
+      date:
+        description: "Date folder to pull (YYYY-MM-DD), defaults to today"
         required: false
-        default: "clips.json"
         type: string
-
   # schedule:
   #   - cron: "30 17 * * 1-5"   # 17:30 UTC = 10:30am PT, Mon–Fri
-
 jobs:
   build-montage:
     runs-on: ubuntu-latest
+    env:
+      RECORDS_FOLDER_ID: 1eQ7K0c4sEqcZBCHBvKmcIpdCcXi28n9l
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
-
       - name: Install FFmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Download episode
+      - name: Determine date
+        id: date
         run: |
-          echo "Downloading episode..."
-          curl -L --fail "${{ inputs.video_url }}" -o episode.mp4
-          ls -lh episode.mp4
-
+          if [ -n "${{ inputs.date }}" ]; then
+            echo "value=${{ inputs.date }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=$(date +%F)" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Fetch today's dirty segments from Drive
+        env:
+          GOOGLE_DRIVE_API_KEY: ${{ secrets.GOOGLE_DRIVE_API_KEY }}
+        run: |
+          python3 fetch_daily_segments.py \
+            --date "${{ steps.date.outputs.value }}" \
+            --records-folder-id "$RECORDS_FOLDER_ID" \
+            --api-key "$GOOGLE_DRIVE_API_KEY" \
+            --out-dir segments
       - name: Build montage
         run: |
+          mapfile -t SEGMENT_FILES < segments/segments.txt
           python3 make_montage.py \
-            --input episode.mp4 \
-            --config "${{ inputs.config }}" \
+            --inputs "${SEGMENT_FILES[@]}" \
+            --config clips.json \
             --output montage.mp4
-
       - name: Upload montage as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: titv-montage
+          name: titv-montage-${{ steps.date.outputs.value }}
           path: montage.mp4
           retention-days: 14
-
       # --- Later: push straight to where the website reads from ---
       # - name: Upload to S3
       #   run: aws s3 cp montage.mp4 s3://your-bucket/titv/latest.mp4
