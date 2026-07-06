@@ -1,0 +1,16 @@
+{
+  "width": 1280,
+  "height": 720,
+  "fps": 30,
+  "transition": "dip",
+  "dip_color": "black",
+  "seamless_loop": true,
+  "transition_seconds": 0.3,
+  "clips": [
+    { "start": "00:05", "duration": 4 },
+    { "start": "00:18", "duration": 4 },
+    { "start": "00:31", "duration": 4 },
+    { "start": "00:44", "duration": 4 },
+    { "start": "00:54", "duration": 4 }
+  ]
+}
