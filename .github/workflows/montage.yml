@@ -1,0 +1,66 @@
+name: TITV Montage
+
+# Two ways to run:
+#  1. Manual — click "Run workflow", paste a direct video URL (works today
+#     while episodes are uploaded by hand).
+#  2. Scheduled — the cron block below runs every weekday morning. It's
+#     commented out until Frame.io API access is sorted with Jake. When
+#     ready, uncomment it and fill in the fetch step.
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: "Direct download URL for the episode video"
+        required: true
+        type: string
+      config:
+        description: "Which clip config to use"
+        required: false
+        default: "clips.json"
+        type: string
+
+  # schedule:
+  #   - cron: "30 17 * * 1-5"   # 17:30 UTC = 10:30am PT, Mon–Fri
+
+jobs:
+  build-montage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download episode
+        run: |
+          echo "Downloading episode..."
+          curl -L --fail "${{ inputs.video_url }}" -o episode.mp4
+          ls -lh episode.mp4
+
+      - name: Build montage
+        run: |
+          python3 make_montage.py \
+            --input episode.mp4 \
+            --config "${{ inputs.config }}" \
+            --output montage.mp4
+
+      - name: Upload montage as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: titv-montage
+          path: montage.mp4
+          retention-days: 14
+
+      # --- Later: push straight to where the website reads from ---
+      # - name: Upload to S3
+      #   run: aws s3 cp montage.mp4 s3://your-bucket/titv/latest.mp4
+      #   env:
+      #     AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      #     AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
