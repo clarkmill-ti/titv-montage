@@ -7,10 +7,10 @@
   "seamless_loop": true,
   "transition_seconds": 0.3,
   "clips": [
-    { "start": "00:05", "duration": 4 },
-    { "start": "00:18", "duration": 4 },
-    { "start": "00:31", "duration": 4 },
-    { "start": "00:44", "duration": 4 },
-    { "start": "00:54", "duration": 4 }
+    { "start": "04:26", "duration": 4 },
+    { "start": "10:54", "duration": 4 },
+    { "start": "17:21", "duration": 4 },
+    { "start": "23:49", "duration": 4 },
+    { "start": "30:16", "duration": 4 }
   ]
 }
