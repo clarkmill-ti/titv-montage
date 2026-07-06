@@ -137,15 +137,33 @@ def main():
     src_duration = probe_duration(source)
     print(f"Source duration: {src_duration:.1f}s  ({len(clips_cfg)} clips requested)")
 
-    # Validate every requested clip fits inside the source.
+    # Validate every requested clip fits inside the source. Instead of
+    # hard-failing the whole build over one bad timestamp, skip the
+    # offending clip with a loud warning and keep going — a stale or
+    # mistyped clips.json shouldn't take down the day's thumbnail.
+    valid_clips_cfg = []
     for i, c in enumerate(clips_cfg):
         start = hms_to_seconds(c["start"])
         dur = float(c["duration"])
         if start + dur > src_duration:
-            raise SystemExit(
-                f"Clip {i+1} (start {start}s + {dur}s) runs past the "
-                f"{src_duration:.1f}s source. Fix clips.json."
+            print(
+                f"WARNING: skipping clip {i+1} (start {start}s + {dur}s "
+                f"runs past the {src_duration:.1f}s source). Check clips.json."
             )
+            continue
+        valid_clips_cfg.append(c)
+
+    skipped = len(clips_cfg) - len(valid_clips_cfg)
+    if skipped:
+        print(f"WARNING: {skipped} of {len(clips_cfg)} clip(s) skipped due to out-of-range timestamps.")
+
+    if not valid_clips_cfg:
+        raise SystemExit(
+            "No valid clips remain after validation — every requested clip "
+            "ran past the source duration. Fix clips.json."
+        )
+
+    clips_cfg = valid_clips_cfg
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
