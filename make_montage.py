@@ -112,16 +112,65 @@ def build_transition_filter(clip_paths, clip_durations, xfade, xfade_type,
     return ";".join(filters), prev_label, running
 
 
+def build_clip_specs_fixed(source, clips_cfg, src_duration):
+    """Legacy mode: one source file, explicit start/duration list from
+    clips.json. Skips (with a warning) any clip that runs past the
+    source's duration instead of failing the whole build."""
+    specs = []
+    for i, c in enumerate(clips_cfg):
+        start = hms_to_seconds(c["start"])
+        dur = float(c["duration"])
+        if start + dur > src_duration:
+            print(
+                f"WARNING: skipping clip {i+1} (start {start}s + {dur}s "
+                f"runs past the {src_duration:.1f}s source). Check clips.json."
+            )
+            continue
+        specs.append({"source": source, "start": start, "duration": dur})
+
+    skipped = len(clips_cfg) - len(specs)
+    if skipped:
+        print(f"WARNING: {skipped} of {len(clips_cfg)} clip(s) skipped due to out-of-range timestamps.")
+    return specs
+
+
+def build_clip_specs_auto(sources, position_pct, clip_len):
+    """Multi-file mode: one clip per input file, taken at a fixed relative
+    position (e.g. 20% through) rather than an absolute timestamp. Built
+    for the daily pipeline where each input is one guest's segment and
+    segment lengths vary day to day. Skips (with a warning) any segment
+    too short to yield a usable clip at that offset."""
+    specs = []
+    for s in sources:
+        dur = probe_duration(s)
+        start = dur * position_pct
+        this_len = min(clip_len, dur - start)
+        if this_len <= 0.1:
+            print(
+                f"WARNING: skipping {s.name} — too short ({dur:.1f}s) for a "
+                f"{position_pct * 100:.0f}% offset clip."
+            )
+            continue
+        specs.append({"source": s, "start": start, "duration": this_len})
+
+    skipped = len(sources) - len(specs)
+    if skipped:
+        print(f"WARNING: {skipped} of {len(sources)} segment(s) skipped as too short.")
+    return specs
+
+
 def main():
     ap = argparse.ArgumentParser(description="Build a looping silent montage.")
-    ap.add_argument("--input", required=True, help="Source video file")
+    group = ap.add_mutually_exclusive_group(required=True)
+    group.add_argument("--input", help="Single source video file (uses clips.json's fixed 'clips' list)")
+    group.add_argument(
+        "--inputs", nargs="+",
+        help="Multiple source segment files — one auto-selected clip per file, "
+             "positioned via clips.json's 'clip_position_pct' (default 20%%)"
+    )
     ap.add_argument("--config", required=True, help="JSON clip config")
     ap.add_argument("--output", required=True, help="Output MP4 path")
     args = ap.parse_args()
-
-    source = Path(args.input)
-    if not source.exists():
-        raise SystemExit(f"Input not found: {source}")
 
     cfg = json.loads(Path(args.config).read_text())
     width = int(cfg.get("width", 1280))
@@ -132,52 +181,43 @@ def main():
     xfade = float(cfg.get("transition_seconds", cfg.get("crossfade_seconds", 0.3)))
     dip_color = cfg.get("dip_color", "black")   # "black" or "white"
     seamless = bool(cfg.get("seamless_loop", transition == "dip"))
-    clips_cfg = cfg["clips"]
 
-    src_duration = probe_duration(source)
-    print(f"Source duration: {src_duration:.1f}s  ({len(clips_cfg)} clips requested)")
+    if args.inputs:
+        sources = [Path(p) for p in args.inputs]
+        for s in sources:
+            if not s.exists():
+                raise SystemExit(f"Input not found: {s}")
+        position_pct = float(cfg.get("clip_position_pct", 0.20))
+        clip_len = float(cfg.get("clip_duration", 4))
+        print(f"{len(sources)} input segment(s); auto-selecting one clip each at "
+              f"{position_pct * 100:.0f}% offset, {clip_len:.1f}s long.")
+        clip_specs = build_clip_specs_auto(sources, position_pct, clip_len)
+    else:
+        source = Path(args.input)
+        if not source.exists():
+            raise SystemExit(f"Input not found: {source}")
+        src_duration = probe_duration(source)
+        clips_cfg = cfg["clips"]
+        print(f"Source duration: {src_duration:.1f}s  ({len(clips_cfg)} clips requested)")
+        clip_specs = build_clip_specs_fixed(source, clips_cfg, src_duration)
 
-    # Validate every requested clip fits inside the source. Instead of
-    # hard-failing the whole build over one bad timestamp, skip the
-    # offending clip with a loud warning and keep going — a stale or
-    # mistyped clips.json shouldn't take down the day's thumbnail.
-    valid_clips_cfg = []
-    for i, c in enumerate(clips_cfg):
-        start = hms_to_seconds(c["start"])
-        dur = float(c["duration"])
-        if start + dur > src_duration:
-            print(
-                f"WARNING: skipping clip {i+1} (start {start}s + {dur}s "
-                f"runs past the {src_duration:.1f}s source). Check clips.json."
-            )
-            continue
-        valid_clips_cfg.append(c)
-
-    skipped = len(clips_cfg) - len(valid_clips_cfg)
-    if skipped:
-        print(f"WARNING: {skipped} of {len(clips_cfg)} clip(s) skipped due to out-of-range timestamps.")
-
-    if not valid_clips_cfg:
+    if not clip_specs:
         raise SystemExit(
-            "No valid clips remain after validation — every requested clip "
-            "ran past the source duration. Fix clips.json."
+            "No usable clips remain after validation — nothing to build. "
+            "Check your source(s) and config."
         )
-
-    clips_cfg = valid_clips_cfg
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         clip_paths = []
         clip_durations = []
 
-        for i, c in enumerate(clips_cfg):
-            start = hms_to_seconds(c["start"])
-            dur = float(c["duration"])
+        for i, spec in enumerate(clip_specs):
             out = tmp / f"clip_{i:02d}.mp4"
-            print(f"  Clip {i+1}: {start:.1f}s for {dur:.1f}s")
-            extract_clip(source, start, dur, out, width, height, fps)
+            print(f"  Clip {i+1}: {spec['source'].name} @ {spec['start']:.1f}s for {spec['duration']:.1f}s")
+            extract_clip(spec["source"], spec["start"], spec["duration"], out, width, height, fps)
             clip_paths.append(out)
-            clip_durations.append(dur)
+            clip_durations.append(spec["duration"])
 
         single = len(clip_paths) == 1
 
