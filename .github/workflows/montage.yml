@@ -38,7 +38,10 @@ jobs:
           if [ -n "${{ inputs.date }}" ]; then
             DATE_VALUE="${{ inputs.date }}"
           else
-            DATE_VALUE=$(date +%F)
+            # Use Pacific time explicitly — the runner's own clock is UTC,
+            # and a plain `date +%F` would return tomorrow's date for any
+            # run after ~5pm Pacific (when UTC has already rolled over).
+            DATE_VALUE=$(TZ="America/Los_Angeles" date +%F)
           fi
           echo "value=$DATE_VALUE" >> "$GITHUB_OUTPUT"
           echo "short=$(date -d "$DATE_VALUE" +%m-%d-%y)" >> "$GITHUB_OUTPUT"
@@ -86,7 +89,9 @@ jobs:
         run: pip install --quiet google-api-python-client google-auth
       - name: Upload montage to Drive
         env:
-          GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+          GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
         run: |
           python3 upload_to_drive.py \
             --file montage.mp4 \
