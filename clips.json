@@ -6,6 +6,6 @@
   "dip_color": "black",
   "seamless_loop": true,
   "transition_seconds": 0.3,
-  "clip_position_pct": 0.70,
+  "clip_position_pct": 0.20,
   "clip_duration": 4
 }

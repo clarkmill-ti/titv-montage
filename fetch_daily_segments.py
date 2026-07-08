@@ -75,12 +75,34 @@ def list_dirty_files(date_folder_id, api_key):
     if not files:
         raise SystemExit("No real PGM_Dirty files found in that date folder.")
 
-    def segment_num(f):
-        m = re.search(r"(\d+)\.mp4$", f["name"])
-        return int(m.group(1)) if m else 0
+    files, nums = sort_segments(files)
+    return files, nums
 
-    files.sort(key=segment_num)
-    return files
+def segment_num(f):
+    """Extract the trailing segment number from a filename, ignoring the
+    .mp4 extension and any '(1)'-style duplicate-copy suffix Drive adds
+    on re-uploads. Returns None if no trailing number is found, so the
+    caller can fall back safely instead of silently mis-sorting."""
+    stem = re.sub(r"\.mp4$", "", f["name"], flags=re.IGNORECASE)
+    stem = re.sub(r"\s*\(\d+\)$", "", stem)
+    m = re.search(r"(\d+)$", stem)
+    return int(m.group(1)) if m else None
+
+
+def sort_segments(files):
+    """Sort segments by their trailing number (00000, 00001, ...). If any
+    file's number can't be parsed, don't silently guess — fall back to
+    alphabetical order and say so loudly, since a bad parse is exactly
+    the kind of thing that can quietly reverse or scramble the sequence."""
+    nums = {f["id"]: segment_num(f) for f in files}
+    if any(v is None for v in nums.values()):
+        unparsed = [f["name"] for f in files if nums[f["id"]] is None]
+        print(f"WARNING: couldn't parse a segment number from: {unparsed}")
+        print("Falling back to alphabetical order — check these filenames.")
+        files.sort(key=lambda f: f["name"])
+    else:
+        files.sort(key=lambda f: nums[f["id"]])
+    return files, nums
 
 
 def download_file(file_id, api_key, out_path):
@@ -103,13 +125,13 @@ def main():
     date_folder_id = find_date_folder(args.records_folder_id, args.date, args.api_key)
 
     print("Listing dirty segments...")
-    files = list_dirty_files(date_folder_id, args.api_key)
+    files, nums = list_dirty_files(date_folder_id, args.api_key)
 
-    print(f"Found {len(files)} dirty segment(s) for {args.date}:")
+    print(f"Found {len(files)} dirty segment(s) for {args.date}, in this order:")
     paths = []
     for i, f in enumerate(files):
         out_path = out_dir / f"segment_{i:02d}.mp4"
-        print(f"  [{i}] {f['name']} -> {out_path}")
+        print(f"  [{i}] seg#{nums[f['id']]}  {f['name']} -> {out_path}")
         download_file(f["id"], args.api_key, out_path)
         paths.append(str(out_path))
 
