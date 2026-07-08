@@ -10,13 +10,19 @@ on:
         description: "Date folder to pull (YYYY-MM-DD), defaults to today"
         required: false
         type: string
-  # schedule:
-  #   - cron: "30 17 * * 1-5"   # 17:30 UTC = 10:30am PT, Mon–Fri
+  schedule:
+    - cron: "0 18 * * 1-5"   # 18:00 UTC = 11:00am PDT, Mon–Fri
+    # NOTE: this is PDT (UTC-7), not PST. Once US daylight saving ends
+    # (~early Nov), this will start firing at 10:00am PT instead of
+    # 11:00am, until DST resumes in spring. Update to "0 19 * * 1-5"
+    # for PST (UTC-8) during the winter months, or automate around it
+    # later if this becomes annoying to track by hand.
 jobs:
   build-montage:
     runs-on: ubuntu-latest
     env:
       RECORDS_FOLDER_ID: 1eQ7K0c4sEqcZBCHBvKmcIpdCcXi28n9l
+      SHOWS_FOLDER_ID: 1N5E9dVV0mgEmR6EN_8JQZG-0ZGgaoZFq
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
@@ -30,11 +36,14 @@ jobs:
         id: date
         run: |
           if [ -n "${{ inputs.date }}" ]; then
-            echo "value=${{ inputs.date }}" >> "$GITHUB_OUTPUT"
+            DATE_VALUE="${{ inputs.date }}"
           else
-            echo "value=$(date +%F)" >> "$GITHUB_OUTPUT"
+            DATE_VALUE=$(date +%F)
           fi
+          echo "value=$DATE_VALUE" >> "$GITHUB_OUTPUT"
+          echo "short=$(date -d "$DATE_VALUE" +%m-%d-%y)" >> "$GITHUB_OUTPUT"
       - name: Fetch today's dirty segments from Drive
+        id: fetch
         env:
           GOOGLE_DRIVE_API_KEY: ${{ secrets.GOOGLE_DRIVE_API_KEY }}
         run: |
@@ -43,6 +52,23 @@ jobs:
             --records-folder-id "$RECORDS_FOLDER_ID" \
             --api-key "$GOOGLE_DRIVE_API_KEY" \
             --out-dir segments
+      - name: Email alert — today's folder not found
+        if: failure() && steps.fetch.outcome == 'failure'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.ALERT_EMAIL_USERNAME }}
+          password: ${{ secrets.ALERT_EMAIL_APP_PASSWORD }}
+          from: TITV Montage Bot
+          to: ${{ secrets.ALERT_EMAIL_TO }}
+          subject: "TITV Montage: no folder found for ${{ steps.date.outputs.value }}"
+          body: |
+            The daily montage workflow couldn't find a Drive "Records" folder
+            for ${{ steps.date.outputs.value }}. This usually means today's
+            recordings haven't been uploaded yet.
+
+            Run log: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       - name: Build montage
         run: |
           mapfile -t SEGMENT_FILES < segments/segments.txt
@@ -56,6 +82,17 @@ jobs:
           name: titv-montage-${{ steps.date.outputs.value }}
           path: montage.mp4
           retention-days: 14
+      - name: Install Drive upload dependencies
+        run: pip install --quiet google-api-python-client google-auth
+      - name: Upload montage to Drive
+        env:
+          GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          python3 upload_to_drive.py \
+            --file montage.mp4 \
+            --parent-folder-id "$SHOWS_FOLDER_ID" \
+            --date-folder-name "${{ steps.date.outputs.short }}" \
+            --name "thumbnail-montage-${{ steps.date.outputs.short }}.mp4"
       # --- Later: push straight to where the website reads from ---
       # - name: Upload to S3
       #   run: aws s3 cp montage.mp4 s3://your-bucket/titv/latest.mp4
