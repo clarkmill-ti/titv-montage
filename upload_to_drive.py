@@ -62,16 +62,28 @@ def get_service():
 
 def find_or_create_folder(service, parent_id, name):
     """Find a subfolder by name under parent_id, creating it if it
-    doesn't exist yet — mirrors how the Shows folder is organized by
-    hand today (one dated subfolder per episode)."""
+    doesn't exist yet. If more than one match exists (e.g. leftover
+    duplicates from an earlier failed run), use the oldest one rather
+    than creating yet another — and say so loudly in the log."""
     q = (
         f"'{parent_id}' in parents and name = '{name}' and "
         f"mimeType = 'application/vnd.google-apps.folder' and trashed = false"
     )
-    res = service.files().list(q=q, fields="files(id, name)").execute()
+    res = service.files().list(q=q, fields="files(id, name, createdTime)").execute()
     files = res.get("files", [])
+    print(f"Looked for existing folder '{name}': found {len(files)} match(es).")
+
     if files:
+        if len(files) > 1:
+            print(
+                f"WARNING: {len(files)} folders named '{name}' already exist under "
+                f"this parent — using the oldest one. You may want to manually "
+                f"merge/delete the duplicates in Drive: "
+                f"{[f['id'] for f in files]}"
+            )
+        files.sort(key=lambda f: f.get("createdTime", ""))
         return files[0]["id"]
+
     metadata = {
         "name": name,
         "mimeType": "application/vnd.google-apps.folder",
