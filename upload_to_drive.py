@@ -5,6 +5,12 @@ of an existing Drive folder (e.g. "TITV/Shows"), creating that day's
 subfolder if it doesn't already exist — mirroring the same "07-06-26"
 style folder-per-episode structure already used for thumbnails.
 
+Authenticates as YOUR Google account via OAuth (not a service account —
+service accounts have no Drive storage quota of their own and can't
+create new files even with Editor access to a folder). Run
+get_drive_token.py once locally to generate the refresh token this
+script needs.
+
 Requires: pip install google-api-python-client google-auth
 
 Usage:
@@ -14,29 +20,43 @@ Usage:
         --date-folder-name "07-06-26" \
         --name "thumbnail-montage.mp4"
 
-Reads the service account credentials JSON from the GDRIVE_SERVICE_ACCOUNT_JSON
-environment variable (set from a GitHub Actions secret — never pass credentials
-on the command line).
+Reads GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, and
+GOOGLE_OAUTH_REFRESH_TOKEN from the environment (set from GitHub Actions
+secrets — never pass credentials on the command line).
 """
 
 import argparse
-import json
 import os
 
-from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
 SCOPES = ["https://www.googleapis.com/auth/drive.file"]
-CREDS_ENV_VAR = "GDRIVE_SERVICE_ACCOUNT_JSON"
 
 
 def get_service():
-    raw = os.environ.get(CREDS_ENV_VAR)
-    if not raw:
-        raise SystemExit(f"Env var {CREDS_ENV_VAR} is empty or not set.")
-    info = json.loads(raw)
-    creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
+    client_id = os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
+    client_secret = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
+    refresh_token = os.environ.get("GOOGLE_OAUTH_REFRESH_TOKEN")
+    missing = [
+        name for name, val in [
+            ("GOOGLE_OAUTH_CLIENT_ID", client_id),
+            ("GOOGLE_OAUTH_CLIENT_SECRET", client_secret),
+            ("GOOGLE_OAUTH_REFRESH_TOKEN", refresh_token),
+        ] if not val
+    ]
+    if missing:
+        raise SystemExit(f"Missing env var(s): {', '.join(missing)}")
+
+    creds = Credentials(
+        token=None,
+        refresh_token=refresh_token,
+        client_id=client_id,
+        client_secret=client_secret,
+        token_uri="https://oauth2.googleapis.com/token",
+        scopes=SCOPES,
+    )
     return build("drive", "v3", credentials=creds)
 
 
