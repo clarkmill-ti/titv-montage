@@ -72,6 +72,22 @@ def list_dirty_files(date_folder_id, api_key):
     if dropped:
         print(f"Ignored {dropped} macOS junk file(s) (._PGM_Dirty...).")
 
+    # Exclude non-guest files that happen to also carry the "PGM_Dirty"
+    # tag in their name. The TICKER export is the on-screen news ticker
+    # over a plain blue background with no guests — if it gets picked up,
+    # the montage grabs a blue-screen clip. Match on the "TICKER" prefix
+    # (case-insensitive) rather than the whole name, so it's robust to the
+    # timestamp/segment portion changing day to day.
+    EXCLUDE_PREFIXES = ("TICKER",)
+    before = len(files)
+    files = [
+        f for f in files
+        if not f["name"].upper().startswith(EXCLUDE_PREFIXES)
+    ]
+    excluded = before - len(files)
+    if excluded:
+        print(f"Excluded {excluded} non-guest file(s) matching {EXCLUDE_PREFIXES}.")
+
     if not files:
         raise SystemExit("No real PGM_Dirty files found in that date folder.")
 
