@@ -11,12 +11,12 @@ on:
         required: false
         type: string
   schedule:
-    - cron: "0 18 * * 1-5"   # 18:00 UTC = 11:00am PDT, Mon–Fri
-    # NOTE: this is PDT (UTC-7), not PST. Once US daylight saving ends
-    # (~early Nov), this will start firing at 10:00am PT instead of
-    # 11:00am, until DST resumes in spring. Update to "0 19 * * 1-5"
-    # for PST (UTC-8) during the winter months, or automate around it
-    # later if this becomes annoying to track by hand.
+    - cron: "17 11 * * 1-5"
+      timezone: "America/Los_Angeles"
+    # 11:17am Pacific, Mon–Fri. The :17 offset avoids the top-of-hour
+    # contention window on GitHub's shared runners (documented to cause
+    # the worst delays); the timezone field handles PDT/PST automatically,
+    # so no manual UTC-offset math or seasonal adjustment is needed.
 jobs:
   build-montage:
     runs-on: ubuntu-latest
