@@ -70,6 +70,28 @@ def extract_clip(source, start, duration, out_path, width, height, fps):
     ])
 
 
+def final_output_args(crf, preset, profile, level):
+    """Shared output flags for the final web-delivery encode.
+
+    This is the ONE place file size is controlled, so all three output
+    paths (cut / single / transitions) stay identical. CRF is the main
+    quality-vs-size dial (higher = smaller); a slower preset squeezes more
+    out of each bit for free (just more CPU, which is fine for one short
+    daily render); main@3.1 + yuv420p + faststart keep it broadly playable
+    and quick to start streaming in a browser.
+    """
+    return [
+        "-an",                      # silent output — the montage has no audio
+        "-c:v", "libx264",
+        "-profile:v", profile,      # "main" = wide device compatibility
+        "-level", str(level),       # 3.1 caps at 720p30, plenty for a thumbnail
+        "-pix_fmt", "yuv420p",      # required for Safari / iOS playback
+        "-preset", preset,          # slower = smaller file at the same CRF
+        "-crf", str(crf),           # <-- raise this for smaller files
+        "-movflags", "+faststart",  # lets playback start before full download
+    ]
+
+
 def build_transition_filter(clip_paths, clip_durations, xfade, xfade_type,
                             seamless, dip_color):
     """Build an ffmpeg filter_complex that chains transitions across all clips.
@@ -182,6 +204,17 @@ def main():
     dip_color = cfg.get("dip_color", "black")   # "black" or "white"
     seamless = bool(cfg.get("seamless_loop", transition == "dip"))
 
+    # --- final web-delivery encode: this is what actually controls size ---
+    crf = int(cfg.get("crf", 28))               # 28 is a good small-but-clean
+                                                 # default for a muted loop;
+                                                 # 30-32 = smaller, 23 = crisper
+    preset = cfg.get("preset", "slow")           # slow = better compression
+    h264_profile = cfg.get("h264_profile", "main")
+    h264_level = cfg.get("h264_level", "3.1")
+    final_args = final_output_args(crf, preset, h264_profile, h264_level)
+    print(f"Output target: {width}x{height} @ {fps}fps, crf {crf}, preset "
+          f"{preset}  (H.264 {h264_profile}@{h264_level}, silent)")
+
     if args.inputs:
         sources = [Path(p) for p in args.inputs]
         for s in sources:
@@ -230,8 +263,7 @@ def main():
             run([
                 "ffmpeg", "-y", "-f", "concat", "-safe", "0",
                 "-i", str(list_file),
-                "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                "-crf", "20", "-movflags", "+faststart",
+                *final_args,
                 str(args.output),
             ])
         elif single:
@@ -245,8 +277,7 @@ def main():
             run([
                 "ffmpeg", "-y", "-i", str(clip_paths[0]),
                 "-vf", vf,
-                "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                "-crf", "20", "-movflags", "+faststart",
+                *final_args,
                 str(args.output),
             ])
         else:
@@ -267,8 +298,7 @@ def main():
                 "ffmpeg", "-y", *inputs,
                 "-filter_complex", filter_str,
                 "-map", f"[{final}]",
-                "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                "-crf", "20", "-movflags", "+faststart",
+                *final_args,
                 str(args.output),
             ])
 
