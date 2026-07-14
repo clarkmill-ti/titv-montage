@@ -7,5 +7,9 @@
   "seamless_loop": true,
   "transition_seconds": 0.3,
   "clip_position_pct": 0.20,
-  "clip_duration": 4
+  "clip_duration": 4,
+  "crf": 28,
+  "preset": "slow",
+  "h264_profile": "main",
+  "h264_level": "3.1"
 }
