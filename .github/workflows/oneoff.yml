@@ -1,0 +1,41 @@
+name: TITV One-Off Montage
+
+# Manual one-off from a single episode file. Does NOT touch the daily Drive pipeline.
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: "Direct-download URL for the episode (e.g. a GitHub Release asset)"
+        required: true
+        type: string
+      config:
+        description: "Clip config file"
+        required: false
+        default: "oneoff-clips.json"
+        type: string
+
+jobs:
+  build-montage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Download episode
+        run: |
+          curl -L --fail "${{ inputs.video_url }}" -o episode.mp4
+          ls -lh episode.mp4
+      - name: Build montage
+        run: |
+          python3 make_montage.py --input episode.mp4 --config "${{ inputs.config }}" --output montage.mp4
+      - name: Upload montage as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: titv-oneoff-montage
+          path: montage.mp4
+          retention-days: 14
