@@ -7,7 +7,7 @@
   "seamless_loop": true,
   "transition_seconds": 0.3,
   "clips": [
-    { "start": "04:27",    "duration": 2.5 },
+    { "start": "04:27",   "duration": 2.5 },
     { "start": "15:02",   "duration": 2.5 },
     { "start": "26:35",   "duration": 2.5 },
     { "start": "38:00",   "duration": 2.5 }
